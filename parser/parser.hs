@@ -21,10 +21,16 @@ data LispVal = Atom String -- Atom: stores String naming the atom
 			 | String String -- String: String
 			 | Bool Bool -- Bool: Boolean
 
+escapedChars :: Parser Char
+escapedChars = do
+				 char '\\' -- accept backslash
+				 x <- oneOf "\\\""  -- either backslash or double quote
+				 return x
+
 parseString :: Parser LispVal -- parser for a string
 parseString = do -- do the following statements
 				char '"' -- look for a single double quote
-				x <- many (noneOf "\"") -- assign to x as many non-double quote characters as possible
+				x <- many (escapedChars <|> noneOf "\\\"") -- match either an escaped char ora character that isnt a backslash or quotes
 				char '"' -- look for another single quote
 				return (String x) -- return x casted as a String
 
@@ -55,14 +61,13 @@ parseNumber = do
 parseExpr :: Parser LispVal
 parseExpr = parseAtom <|> parseString <|> parseNumber
 
-{-
+
 test :: String -> String
-test input = case parse (parseNumber) "lisp" input of
+test input = case parse (escapedChars) "lisp" input of
 			 Left err -> "No match: " ++ show err
 			 Right val -> "Found value: " ++ show val
--}
 
 main :: IO ()
 main = do
 	(expr:_) <- getArgs -- get the args and assign the first element to expr
-	putStrLn (readExpr expr)
+	putStrLn (test expr)
