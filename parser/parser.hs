@@ -26,6 +26,7 @@ data LispVal
   | Number Integer
   | String String
   | Bool Bool
+  | Character Char
   deriving (Show)
 
 -- escaped chars helper parser for parseString
@@ -109,13 +110,23 @@ binToDec s = binToDec' $ reverse s
       | x == '0' = 2 * binToDec' xs
       | x == '1' = 1 + 2 * binToDec' xs
 
+-- parser for character
+parseChar :: Parser LispVal
+parseChar = do
+  try (string "#\\")
+  char <- try (string "space" <|> string "newline") <|> 
+    do{temp <- anyChar; notFollowedBy alphaNum; return [temp]}
+  return $ Character $ case char of
+    "space" -> ' '
+    "newline" -> '\n'
+    _ -> char !! 0
 -- parser for expression
 parseExpr :: Parser LispVal
 parseExpr = parseAtom <|> parseString <|> parseNumber <|> parseBool
 
 -- test function to test parser
 test :: String -> String
-test input = case parse (parseExpr) "lisp" input of
+test input = case parse (parseChar) "lisp" input of
   Left err -> "No match: " ++ show err
   Right val -> "Found value: " ++ show val
 
