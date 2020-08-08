@@ -4,6 +4,7 @@ import Control.Monad
 import Numeric
 import System.Environment
 import Text.ParserCombinators.Parsec hiding (spaces)
+import Data.Ratio
 
 -- valid Scheme symbols
 symbol :: Parser Char
@@ -16,7 +17,7 @@ spaces = skipMany1 space
 readExpr :: String -> String
 readExpr input = case parse parseExpr "lisp" input of
   Left err -> "No match: " ++ show err
-  Right val -> "Found value"
+  Right val -> "Found value: " ++ show val
 
 -- Scheme data types
 data LispVal
@@ -27,6 +28,8 @@ data LispVal
   | String String
   | Bool Bool
   | Character Char
+  | Float Double
+  | Rational (Ratio Integer)
   deriving (Show)
 
 -- escaped chars helper parser for parseString
@@ -120,13 +123,67 @@ parseChar = do
     "space" -> ' '
     "newline" -> '\n'
     _ -> char !! 0
+
+-- parser for float
+parseFloat :: Parser LispVal
+parseFloat = do
+  integerPart <- try (many1 digit)
+  char '.'
+  fractionalPart <- many digit
+  let doubleString = integerPart ++ "." ++ fractionalPart
+  let out = fst $ readFloat doubleString !! 0
+  return $ Float out
+
+-- parser for rational
+parseRational :: Parser LispVal
+parseRational = do
+  numerator <- try (many1 digit)
+  char '/'
+  denominator <- many1 digit
+  let fraction = (readInt numerator) % (readInt denominator)
+  return $ Rational fraction
+  where
+    readInt s = read s :: Integer
+
+-- parser for List
+parseList :: Parser LispVal
+parseList = liftM List $ sepBy parseExpr spaces
+
+-- parser for Dotted List
+parseDottedList :: Parser LispVal
+parseDottedList = do
+  head <- endBy parseExpr spaces
+  tail <- char '.' >> spaces >> parseExpr
+  return $ DottedList head tail
+
+-- parser for single-quote syntactic sugar in Scheme
+parseQuoted :: Parser LispVal
+parseQuoted = do
+  char '\''
+  x <- parseExpr
+  return $ List [Atom "quote", x]
+
+-- parser for parenthesized list
+
 -- parser for expression
 parseExpr :: Parser LispVal
-parseExpr = parseAtom <|> parseString <|> parseNumber <|> parseBool
+parseExpr = 
+  try parseRational <|>
+  try parseFloat <|>
+  try parseAtom <|>
+  try parseString <|>
+  try parseNumber <|>
+  try parseBool <|>
+  try parseQuoted <|>
+  do
+    char '('
+    x <- try parseList <|> parseDottedList
+    char ')'
+    return x
 
 -- test function to test parser
-test :: String -> String
-test input = case parse (parseChar) "lisp" input of
+test :: String -> Parser LispVal -> String
+test input parser = case parse (parser) "lisp" input of
   Left err -> "No match: " ++ show err
   Right val -> "Found value: " ++ show val
 
