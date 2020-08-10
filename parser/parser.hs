@@ -5,6 +5,8 @@ import Numeric
 import System.Environment
 import Text.ParserCombinators.Parsec hiding (spaces)
 import Data.Ratio
+import Data.Typeable
+import Data.Complex
 
 -- valid Scheme symbols
 symbol :: Parser Char
@@ -30,6 +32,7 @@ data LispVal
   | Character Char
   | Float Double
   | Rational (Ratio Integer)
+  | Complex (Complex Double)
   deriving (Show)
 
 -- escaped chars helper parser for parseString
@@ -129,7 +132,7 @@ parseFloat :: Parser LispVal
 parseFloat = do
   integerPart <- try (many1 digit)
   char '.'
-  fractionalPart <- many digit
+  fractionalPart <- many1 digit
   let doubleString = integerPart ++ "." ++ fractionalPart
   let out = fst $ readFloat doubleString !! 0
   return $ Float out
@@ -145,6 +148,20 @@ parseRational = do
   where
     readInt s = read s :: Integer
 
+-- parser for complex numbers
+-- TODO work on this
+parseComplex :: Parser LispVal
+parseComplex = do
+  real <- (try parseFloat <|> try parseNumberNormal)
+  char '+'
+  imag <- (try parseFloat <|> try parseNumberNormal)
+  char 'j'
+  let out = (toDouble real) :+ (toDouble imag)
+  return $ Complex out
+  where
+   toDouble :: LispVal -> Double
+   toDouble(Float x) = realToFrac x
+   toDouble(Number n) = fromIntegral n
 -- parser for List
 parseList :: Parser LispVal
 parseList = liftM List $ sepBy parseExpr spaces
@@ -163,11 +180,10 @@ parseQuoted = do
   x <- parseExpr
   return $ List [Atom "quote", x]
 
--- parser for parenthesized list
 
 -- parser for expression
 parseExpr :: Parser LispVal
-parseExpr = 
+parseExpr =
   try parseRational <|>
   try parseFloat <|>
   try parseAtom <|>
@@ -192,4 +208,5 @@ main :: IO ()
 main = do
   (expr : _) <- getArgs
   putStrLn (readExpr expr)
+
 
