@@ -33,7 +33,7 @@ data LispVal
   | Float Double
   | Rational (Ratio Integer)
   | Complex (Complex Double)
-  deriving (Show)
+  deriving (Eq)
 
 -- escaped chars helper parser for parseString
 escapedChars :: Parser Char
@@ -197,6 +197,23 @@ parseExpr =
     char ')'
     return x
 
+-- function to show LispVal
+showVal :: LispVal -> String
+showVal (String contents) = "\"" ++ contents ++ "\""
+showVal (Atom name) = name
+showVal (Number contents) = show contents
+showVal (Bool True) = "#t"
+showVal (Bool False) = "#f"
+showVal (List contents) = "(" ++ unwordsList contents ++ ")"
+showVal (DottedList head tail) = "(" ++ unwordsList head ++ " . " ++ showVal tail ++ ")" 
+
+-- helper function similar to " ".join() in Python
+unwordsList :: [LispVal] -> String
+unwordsList = unwords . map showVal
+
+-- make LispVal a member of the type class Show
+instance Show LispVal where show = showVal
+
 -- test function to test parser
 test :: String -> Parser LispVal -> String
 test input parser = case parse (parser) "lisp" input of
@@ -208,5 +225,4 @@ main :: IO ()
 main = do
   (expr : _) <- getArgs
   putStrLn (readExpr expr)
-
 
