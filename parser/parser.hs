@@ -33,7 +33,7 @@ data LispVal
   | Float Double
   | Rational (Ratio Integer)
   | Complex (Complex Double)
-  deriving (Eq)
+  deriving (Eq, Show)
 
 -- escaped chars helper parser for parseString
 escapedChars :: Parser Char
@@ -197,6 +197,7 @@ parseExpr =
     char ')'
     return x
 
+{- TODO: Implement custom show functions for all types
 -- function to show LispVal
 showVal :: LispVal -> String
 showVal (String contents) = "\"" ++ contents ++ "\""
@@ -207,24 +208,30 @@ showVal (Bool False) = "#f"
 showVal (List contents) = "(" ++ unwordsList contents ++ ")"
 showVal (DottedList head tail) = "(" ++ unwordsList head ++ " . " ++ showVal tail ++ ")" 
 
+
 -- helper function similar to " ".join() in Python
 unwordsList :: [LispVal] -> String
 unwordsList = unwords . map showVal
 
 -- make LispVal a member of the type class Show
 instance Show LispVal where show = showVal
-
+-}
 -- start of evaluator
 eval :: LispVal -> LispVal
 eval val@(String _) = val -- following line assigns input to val if val is type String
 eval val@(Number _) = val
 eval val@(Bool _) = val
+eval val@(Character _) = val
+eval val@(Float _) = val
+eval val@(Rational _) = val
+eval val@(Complex _) = val
 eval (List [Atom "quote", val]) = val
 eval (List (Atom func : args)) = apply func $ map eval args
 
 apply :: String -> [LispVal] -> LispVal
 apply func args = maybe (Bool False) ($ args) $ lookup func primitives
 
+-- array of primitive functions
 primitives :: [(String, [LispVal] -> LispVal)]
 primitives = [("+", numericBinop (+)),
   ("-", numericBinop (-)),
@@ -232,9 +239,21 @@ primitives = [("+", numericBinop (+)),
   ("/", numericBinop div),
   ("mod", numericBinop mod),
   ("quotient", numericBinop quot),
-  ("remainder", numericBinop rem)]
+  ("remainder", numericBinop rem),
+  ("symbol?", unaryFunction isAtom),
+  ("integer?", unaryFunction isNumber),
+  ("complex?", unaryFunction isComplex),
+  ("real?", unaryFunction isFloat),
+  ("float?", unaryFunction isFloat),
+  ("rational?", unaryFunction isRational),
+  ("boolean?", unaryFunction isBool),
+  ("list?", unaryFunction isList),
+  ("char?", unaryFunction isChar),
+  ("string?", unaryFunction isString)
+  ]
 
 
+-- utility function for f(Number, Number) -> Number
 numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> LispVal
 numericBinop op params = Number $ foldl1 op $ map unpackNum params
 
@@ -242,8 +261,40 @@ unpackNum :: LispVal -> Integer
 unpackNum (Number n) = n
 unpackNum _ = 0 -- no weak typing
 
+-- utility function for a unary function
+unaryFunction :: (LispVal -> LispVal) -> [LispVal] -> LispVal
+unaryFunction f [x] = f x
 
+-- type-testing functions
+isAtom, isList, isNumber, isString, isBool, isChar, isFloat, isRational, isComplex :: LispVal -> LispVal
+isAtom (Atom _) = Bool True
+isAtom _ = Bool False
+isList (List _) = Bool True
+isList (DottedList _ _) = Bool False
+isList _ = Bool False
+isNumber (Number _) = Bool True
+isNumber _ = Bool False
+isString (String _) = Bool True
+isString _ = Bool False
+isBool (Bool _) = Bool True
+isBool _ = Bool False
+isChar (Character _) = Bool True
+isChar _ = Bool False
+isFloat (Float _) = Bool True
+isFloat _ = Bool False
+isRational (Rational _) = Bool True
+isRational _ = Bool False
+isComplex (Complex _) = Bool True
+isComplex _ = Bool False
 
+-- functions dealing with symbols
+stringToSymbol :: LispVal -> LispVal
+stringToSymbol (String s) = Atom $ s
+stringToSymbol _ = Atom $ "" -- fix later with error handling
+
+symbolToString :: LispVal -> LispVal
+symbolToString (Atom s) = String $ s
+symbolToString _ = ""
 
 -- test function to test parser
 test :: String -> Parser LispVal -> String
