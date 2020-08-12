@@ -16,10 +16,10 @@ spaces :: Parser ()
 spaces = skipMany1 space
 
 -- read Scheme expression
-readExpr :: String -> String
+readExpr :: String -> LispVal
 readExpr input = case parse parseExpr "lisp" input of
-  Left err -> "No match: " ++ show err
-  Right val -> "Found value: " ++ show val
+  Left err -> String $ "No match: " ++ show err
+  Right val -> val
 
 -- Scheme data types
 data LispVal
@@ -214,6 +214,37 @@ unwordsList = unwords . map showVal
 -- make LispVal a member of the type class Show
 instance Show LispVal where show = showVal
 
+-- start of evaluator
+eval :: LispVal -> LispVal
+eval val@(String _) = val -- following line assigns input to val if val is type String
+eval val@(Number _) = val
+eval val@(Bool _) = val
+eval (List [Atom "quote", val]) = val
+eval (List (Atom func : args)) = apply func $ map eval args
+
+apply :: String -> [LispVal] -> LispVal
+apply func args = maybe (Bool False) ($ args) $ lookup func primitives
+
+primitives :: [(String, [LispVal] -> LispVal)]
+primitives = [("+", numericBinop (+)),
+  ("-", numericBinop (-)),
+  ("*", numericBinop (*)),
+  ("/", numericBinop div),
+  ("mod", numericBinop mod),
+  ("quotient", numericBinop quot),
+  ("remainder", numericBinop rem)]
+
+
+numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> LispVal
+numericBinop op params = Number $ foldl1 op $ map unpackNum params
+
+unpackNum :: LispVal -> Integer
+unpackNum (Number n) = n
+unpackNum _ = 0 -- no weak typing
+
+
+
+
 -- test function to test parser
 test :: String -> Parser LispVal -> String
 test input parser = case parse (parser) "lisp" input of
@@ -224,5 +255,4 @@ test input parser = case parse (parser) "lisp" input of
 main :: IO ()
 main = do
   (expr : _) <- getArgs
-  putStrLn (readExpr expr)
-
+  print (eval (readExpr expr))
