@@ -1,6 +1,7 @@
 module Main where
 
 import Control.Monad
+import Control.Monad.Except
 import Numeric
 import System.Environment
 import Text.ParserCombinators.Parsec hiding (spaces)
@@ -217,10 +218,10 @@ unwordsList = unwords . map showVal
 instance Show LispVal where show = showVal
 -}
 -- start of evaluator
-eval :: LispVal -> LispVal
-eval val@(String _) = val -- following line assigns input to val if val is type String
-eval val@(Number _) = val
-eval val@(Bool _) = val
+eval :: LispVal -> ThrowsError LispVal
+eval val@(String _) = return val -- following line assigns input to val if val is type String
+eval val@(Number _) = return val
+eval val@(Bool _) = return val
 eval val@(Character _) = val
 eval val@(Float _) = val
 eval val@(Rational _) = val
@@ -295,6 +296,39 @@ stringToSymbol _ = Atom $ "" -- fix later with error handling
 symbolToString :: LispVal -> LispVal
 symbolToString (Atom s) = String $ s
 symbolToString _ = ""
+
+-- data type for error handling
+data LispError = NumArgs Integer [LispVal]
+  | TypeMismatch String LispVal
+  | Parser ParseError
+  | BadSpecialForm String LispVal
+  | NotFunction String String
+  | UnboundVar String String
+  | Default String
+
+showError :: LispError -> String
+showError (UnboundVar message varname) = message ++ ": " ++ varname
+showError (BadSpecialForm message form) = message ++ ": " ++ show form
+showError (NumArgs expected found) = "Expected " ++ show expected
+  ++ " args; found values " ++ unwordsList found
+showError (TypeMismatch expected found) = "Invalid type: expected " ++ expected
+ ++ ", found " ++ show found
+showError (Parser parseErr) = "Parse error at " ++ show parseError
+
+instance Show LispError where show = showError
+
+-- type that either throws LispError or returns value (similar to parse)
+type ThrowsError = Either LispError
+
+trapError action = catchError action (return . show)
+
+extractValue :: ThrowsError a -> a
+extractValue (Right val) = val
+
+{-
+Note: I don't really understand the functions used here in error evaluation - I wll use them as black boxes for now
+-}
+
 
 -- test function to test parser
 test :: String -> Parser LispVal -> String
