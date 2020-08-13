@@ -17,10 +17,10 @@ spaces :: Parser ()
 spaces = skipMany1 space
 
 -- read Scheme expression
-readExpr :: String -> LispVal
+readExpr :: String -> ThrowsError LispVal
 readExpr input = case parse parseExpr "lisp" input of
-  Left err -> String $ "No match: " ++ show err
-  Right val -> val
+  Left err -> throwError $ Parser err
+  Right val -> return val
 
 -- Scheme data types
 data LispVal
@@ -34,7 +34,7 @@ data LispVal
   | Float Double
   | Rational (Ratio Integer)
   | Complex (Complex Double)
-  deriving (Eq, Show)
+  deriving (Eq)
 
 -- escaped chars helper parser for parseString
 escapedChars :: Parser Char
@@ -198,7 +198,7 @@ parseExpr =
     char ')'
     return x
 
-{- TODO: Implement custom show functions for all types
+-- TODO: Implement custom show functions for all types
 -- function to show LispVal
 showVal :: LispVal -> String
 showVal (String contents) = "\"" ++ contents ++ "\""
@@ -208,7 +208,10 @@ showVal (Bool True) = "#t"
 showVal (Bool False) = "#f"
 showVal (List contents) = "(" ++ unwordsList contents ++ ")"
 showVal (DottedList head tail) = "(" ++ unwordsList head ++ " . " ++ showVal tail ++ ")" 
-
+showVal (Character c) = "\'" ++ show c ++ "\'"
+showVal (Float f) = show f
+showVal (Rational r) = show r
+showVal (Complex c) = show c
 
 -- helper function similar to " ".join() in Python
 unwordsList :: [LispVal] -> String
@@ -216,24 +219,27 @@ unwordsList = unwords . map showVal
 
 -- make LispVal a member of the type class Show
 instance Show LispVal where show = showVal
--}
+
 -- start of evaluator
 eval :: LispVal -> ThrowsError LispVal
 eval val@(String _) = return val -- following line assigns input to val if val is type String
 eval val@(Number _) = return val
 eval val@(Bool _) = return val
-eval val@(Character _) = val
-eval val@(Float _) = val
-eval val@(Rational _) = val
-eval val@(Complex _) = val
-eval (List [Atom "quote", val]) = val
-eval (List (Atom func : args)) = apply func $ map eval args
+eval val@(Character _) = return val
+eval val@(Float _) = return val
+eval val@(Rational _) = return val
+eval val@(Complex _) = return val
+eval (List [Atom "quote", val]) = return val
+eval (List (Atom func : args)) = mapM eval args >>= apply func
+eval badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
-apply :: String -> [LispVal] -> LispVal
-apply func args = maybe (Bool False) ($ args) $ lookup func primitives
+apply :: String -> [LispVal] -> ThrowsError LispVal
+apply func args = maybe (throwError $ NotFunction "Unrecognized primitive function args" func)
+                        ($ args)
+                        (lookup func primitives)
 
 -- array of primitive functions
-primitives :: [(String, [LispVal] -> LispVal)]
+primitives :: [(String, [LispVal] -> ThrowsError LispVal)]
 primitives = [("+", numericBinop (+)),
   ("-", numericBinop (-)),
   ("*", numericBinop (*)),
@@ -255,38 +261,41 @@ primitives = [("+", numericBinop (+)),
 
 
 -- utility function for f(Number, Number) -> Number
-numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> LispVal
-numericBinop op params = Number $ foldl1 op $ map unpackNum params
+numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> ThrowsError LispVal
+numericBinop op [] = throwError $ NumArgs 2 []
+numericBinop op singleVal@[_] = throwError $ NumArgs 2 singleVal
+numericBinop op params = mapM unpackNum params >>= return . Number . foldl1 op
+-- numericBinop op params = Number $ foldl1 op $ map unpackNum params
 
-unpackNum :: LispVal -> Integer
-unpackNum (Number n) = n
-unpackNum _ = 0 -- no weak typing
+unpackNum :: LispVal -> ThrowsError Integer
+unpackNum (Number n) = return n
+unpackNum notNum = throwError $ TypeMismatch "number" notNum  -- no weak typing
 
 -- utility function for a unary function
-unaryFunction :: (LispVal -> LispVal) -> [LispVal] -> LispVal
+unaryFunction :: (LispVal -> ThrowsError LispVal) -> [LispVal] -> ThrowsError LispVal
 unaryFunction f [x] = f x
 
 -- type-testing functions
-isAtom, isList, isNumber, isString, isBool, isChar, isFloat, isRational, isComplex :: LispVal -> LispVal
-isAtom (Atom _) = Bool True
-isAtom _ = Bool False
-isList (List _) = Bool True
-isList (DottedList _ _) = Bool False
-isList _ = Bool False
-isNumber (Number _) = Bool True
-isNumber _ = Bool False
-isString (String _) = Bool True
-isString _ = Bool False
-isBool (Bool _) = Bool True
-isBool _ = Bool False
-isChar (Character _) = Bool True
-isChar _ = Bool False
-isFloat (Float _) = Bool True
-isFloat _ = Bool False
-isRational (Rational _) = Bool True
-isRational _ = Bool False
-isComplex (Complex _) = Bool True
-isComplex _ = Bool False
+isAtom, isList, isNumber, isString, isBool, isChar, isFloat, isRational, isComplex :: LispVal -> ThrowsError LispVal
+isAtom (Atom _) = return $ Bool True
+isAtom _ = return $ Bool False
+isList (List _) = return $ Bool True
+isList (DottedList _ _) = return $ Bool False
+isList _ = return $ Bool False
+isNumber (Number _) = return $ Bool True
+isNumber _ = return $ Bool False
+isString (String _) = return $ Bool True
+isString _ = return $ Bool False
+isBool (Bool _) = return $ Bool True
+isBool _ = return $ Bool False
+isChar (Character _) = return $ Bool True
+isChar _ = return $ Bool False
+isFloat (Float _) = return $ Bool True
+isFloat _ = return $ Bool False
+isRational (Rational _) = return $ Bool True
+isRational _ = return $ Bool False
+isComplex (Complex _) = return $ Bool True
+isComplex _ = return $ Bool False
 
 -- functions dealing with symbols
 stringToSymbol :: LispVal -> LispVal
@@ -295,7 +304,7 @@ stringToSymbol _ = Atom $ "" -- fix later with error handling
 
 symbolToString :: LispVal -> LispVal
 symbolToString (Atom s) = String $ s
-symbolToString _ = ""
+symbolToString _ = String $ ""
 
 -- data type for error handling
 data LispError = NumArgs Integer [LispVal]
@@ -309,11 +318,12 @@ data LispError = NumArgs Integer [LispVal]
 showError :: LispError -> String
 showError (UnboundVar message varname) = message ++ ": " ++ varname
 showError (BadSpecialForm message form) = message ++ ": " ++ show form
+showError (NotFunction message func) = message ++ ": " ++ show func
 showError (NumArgs expected found) = "Expected " ++ show expected
   ++ " args; found values " ++ unwordsList found
 showError (TypeMismatch expected found) = "Invalid type: expected " ++ expected
  ++ ", found " ++ show found
-showError (Parser parseErr) = "Parse error at " ++ show parseError
+showError (Parser parseErr) = "Parse error at " ++ show parseErr
 
 instance Show LispError where show = showError
 
@@ -339,5 +349,6 @@ test input parser = case parse (parser) "lisp" input of
 -- main method
 main :: IO ()
 main = do
-  (expr : _) <- getArgs
-  print (eval (readExpr expr))
+  args <- getArgs
+  evaled <- return $ liftM show $ readExpr (args !! 0) >>= eval
+  putStrLn $ extractValue $ trapError evaled
