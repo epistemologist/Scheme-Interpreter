@@ -256,7 +256,20 @@ primitives = [("+", numericBinop (+)),
   ("boolean?", unaryFunction isBool),
   ("list?", unaryFunction isList),
   ("char?", unaryFunction isChar),
-  ("string?", unaryFunction isString)
+  ("string?", unaryFunction isString),
+  ("=", numBoolBinop (==)),
+  ("<", numBoolBinop (<)),
+  (">", numBoolBinop (>)),
+  ("/=", numBoolBinop (/=)),
+  (">=", numBoolBinop (>=)),
+  ("<=", numBoolBinop (<=)),
+  ("&&", boolBoolBinop (&&)),
+  ("||", boolBoolBinop (||)),
+  ("string=?", strBoolBinop (==)),
+  ("string<?", strBoolBinop (<)),
+  ("string>?", strBoolBinop (>)),
+  ("string<=?", strBoolBinop (<=)),
+  ("string>=?", strBoolBinop (>=))
   ]
 
 
@@ -267,9 +280,30 @@ numericBinop op singleVal@[_] = throwError $ NumArgs 2 singleVal
 numericBinop op params = mapM unpackNum params >>= return . Number . foldl1 op
 -- numericBinop op params = Number $ foldl1 op $ map unpackNum params
 
+boolBinop :: (LispVal -> ThrowsError a) -> (a -> a -> Bool) -> [LispVal] -> ThrowsError LispVal
+--boolBinop unpacker op [x,y] = return $ Bool $ (unpacker x) `op` (unpacker y)
+boolBinop unpacker op [l,r] = do
+  unpackedL <- unpacker l
+  unpackedR <- unpacker r
+  return $ Bool $ unpackedL `op` unpackedR
+boolBinop _ _ args = throwError $ NumArgs 2 args
+
+numBoolBinop = boolBinop unpackNum
+strBoolBinop = boolBinop unpackStr
+boolBoolBinop = boolBinop unpackBool
+
 unpackNum :: LispVal -> ThrowsError Integer
 unpackNum (Number n) = return n
 unpackNum notNum = throwError $ TypeMismatch "number" notNum  -- no weak typing
+
+unpackStr :: LispVal -> ThrowsError String
+unpackStr (String s) = return s
+unpackStr (notString) = throwError $ TypeMismatch "string" notString
+
+unpackBool :: LispVal -> ThrowsError Bool
+unpackBool (Bool b) = return b;
+unpackBool notBool = throwError $ TypeMismatch "boolean" notBool
+
 
 -- utility function for a unary function
 unaryFunction :: (LispVal -> ThrowsError LispVal) -> [LispVal] -> ThrowsError LispVal
