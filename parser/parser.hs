@@ -8,6 +8,7 @@ import Text.ParserCombinators.Parsec hiding (spaces)
 import Data.Ratio
 import Data.Typeable
 import Data.Complex
+import System.IO
 
 -- valid Scheme symbols
 symbol :: Parser Char
@@ -234,7 +235,8 @@ eval (List [Atom "if", pred, conseq, alt]) = do
   result <- eval pred
   case result of
     Bool False -> eval alt
-    otherwise -> eval conseq
+    Bool True -> eval conseq
+    otherwise -> throwError $ TypeMismatch "boolean" result
 eval (List (Atom func : args)) = mapM eval args >>= apply func
 eval badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
@@ -442,9 +444,34 @@ test input parser = case parse (parser) "lisp" input of
   Left err -> "No match: " ++ show err
   Right val -> "Found value: " ++ show val
 
+-- REPL support
+flushStr :: String -> IO ()
+flushStr str = putStr str >> hFlush stdout
+
+readPrompt :: String -> IO String
+readPrompt prompt = flushStr prompt >> getLine
+
+evalString :: String -> IO String
+evalString expr = return $ extractValue $ trapError (liftM show $ readExpr expr >>= eval)
+
+evalAndPrint :: String -> IO ()
+evalAndPrint expr = evalString expr >>= putStrLn
+
+until_ :: Monad m => (a -> Bool) -> m a -> (a -> m ()) -> m ()
+until_ pred prompt action = do
+  result <- prompt
+  if pred result
+    then return ()
+    else action result >> until_ pred prompt action
+
+runRepl :: IO ()
+runRepl = until_ (== "quit") (readPrompt "Lisp>>> ") evalAndPrint
+
 -- main method
 main :: IO ()
 main = do
   args <- getArgs
-  evaled <- return $ liftM show $ readExpr (args !! 0) >>= eval
-  putStrLn $ extractValue $ trapError evaled
+  case length args of
+    0 -> runRepl
+    1 -> evalAndPrint $ args !! 0
+    otherwise -> putStrLn "Program takes only 0 or 1 arguments"
