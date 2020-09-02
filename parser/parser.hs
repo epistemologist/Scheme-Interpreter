@@ -274,7 +274,11 @@ primitives = [("+", numericBinop (+)),
   ("string<?", strBoolBinop (<)),
   ("string>?", strBoolBinop (>)),
   ("string<=?", strBoolBinop (<=)),
-  ("string>=?", strBoolBinop (>=))
+  ("string>=?", strBoolBinop (>=)),
+  ("car", car),
+  ("cdr", cdr),
+  ("cons", cons),
+  ("eqv?", eqv)
   ]
 
 
@@ -285,14 +289,15 @@ numericBinop op singleVal@[_] = throwError $ NumArgs 2 singleVal
 numericBinop op params = mapM unpackNum params >>= return . Number . foldl1 op
 -- numericBinop op params = Number $ foldl1 op $ map unpackNum params
 
+-- utility function for f(LispVal, LispVal -> Bool
 boolBinop :: (LispVal -> ThrowsError a) -> (a -> a -> Bool) -> [LispVal] -> ThrowsError LispVal
---boolBinop unpacker op [x,y] = return $ Bool $ (unpacker x) `op` (unpacker y)
 boolBinop unpacker op [l,r] = do
   unpackedL <- unpacker l
   unpackedR <- unpacker r
   return $ Bool $ unpackedL `op` unpackedR
 boolBinop _ _ args = throwError $ NumArgs 2 args
 
+-- Unpackers - functions that take LispVals and return their corresponding primitive types in Haskell
 numBoolBinop = boolBinop unpackNum
 strBoolBinop = boolBinop unpackStr
 boolBoolBinop = boolBinop unpackBool
@@ -344,6 +349,58 @@ stringToSymbol _ = Atom $ "" -- fix later with error handling
 symbolToString :: LispVal -> LispVal
 symbolToString (Atom s) = String $ s
 symbolToString _ = String $ ""
+
+-- List primitives
+{-
+1 - (car '(a b c)) = a
+2 - (car '(a)) = a
+3 - (car '(a b . c)) = a
+4 - (car 'a) = error (arg isnt list)
+5 - (car 'a 'b) = error (too many args)
+-}
+
+car :: [LispVal] -> ThrowsError LispVal
+car [List (x:xs)] = return x -- 1,2
+car [DottedList (x:xs) _] = return x -- 3
+car [badArg] = throwError $ TypeMismatch "pair" badArg -- 4
+car badArgList = throwError $ NumArgs 1 badArgList -- 5
+
+{-
+1 - (cdr '(a b c)) = (b c)
+2 - (cdr '(a b)) = (b)
+3 - (cdr '(a)) = NIL
+4 - (cdr '(a . b)) = b
+5 - (cdr '(a b . c)) = (b . c)
+6 - (cdr 'a) = error (arg not list)
+7 - (cdr 'a 'b) = error (too many args)
+-}
+
+cdr :: [LispVal] -> ThrowsError LispVal
+cdr [List (x:xs)] = return $ List xs -- 1,2,3
+cdr [DottedList [_] x] = return x  -- 4
+cdr [DottedList (_:xs) x] = return $ DottedList xs x -- 5
+cdr [badArg] = throwError $ TypeMismatch "pair" badArg -- 6
+cdr badArgList = throwError $ NumArgs 1 badArgList -- 7
+
+cons :: [LispVal] -> ThrowsError LispVal
+cons [x1, List []] = return $ List [x1] -- cons(anything, Nil) = 1 item list
+cons [x, List xs] = return $ List $ x:xs -- cons(anything, list) puts anything at front of given list
+cons [x, DottedList xs xlast] = return $ DottedList (x:xs) xlast -- case for dotted lists
+cons [x1, x2] = return $ DottedList [x1] x2
+cons badArgList = throwError $ NumArgs 2 badArgList
+
+-- function to test equality (strong typing!)
+eqv :: [LispVal] -> ThrowsError LispVal
+eqv [(Bool arg1), (Bool arg2)] = return $ Bool $ arg1 == arg2
+eqv [(Number arg1), (Number arg2)] = return $ Bool $ arg1 == arg2
+eqv [(String arg1), (String arg2)] = return $ Bool $ arg1 == arg2
+eqv [(Atom arg1), (Atom arg2)] = return $ Bool $ arg1 == arg2
+eqv [(DottedList xs x), (DottedList ys y)] = eqv [List $ xs ++ [x], List $ ys ++ [y]]
+eqv [(List arg1), (List arg2)] = return $ Bool $ (length arg1 == length arg2) && (all eqvPair $ zip arg1 arg2)
+  where
+    eqvPair (x1, x2) = case eqv [x1, x2] of
+      Left err -> False
+      Right (Bool val) -> val
 
 -- data type for error handling
 data LispError = NumArgs Integer [LispVal]
